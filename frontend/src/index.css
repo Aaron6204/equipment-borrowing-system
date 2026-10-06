@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/* The colour palette of the system, defined once in the Tailwind theme.
+   Usage: bg-nu-blue, text-nu-gold, border-nu-line, and so on. */
+@theme {
+  --color-nu-blue: #35408e;
+  --color-nu-navy: #252c68;
+  --color-nu-royal: #3f5bd9;
+  --color-nu-gold: #f5c542;
+  --color-nu-amber: #c98f00;
+  --color-nu-mist: #f5f6fb;
+  --color-nu-line: #e3e6f0;
+  --color-nu-ink: #1d2240;
+  --color-nu-muted: #626a85;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --shadow-card: 0 1px 2px rgb(37 44 104 / 0.06), 0 8px 24px rgb(37 44 104 / 0.06);
+}
+
+@layer base {
+  body {
+    @apply bg-nu-mist font-sans text-nu-ink antialiased;
+  }
+}
+
+/* Shared components, so buttons, cards, and fields look the same on every page. */
+@layer components {
+  /* Every button shares this base, then adds its own colours below. */
+  .btn,
+  .btn-primary,
+  .btn-gold,
+  .btn-outline,
+  .btn-danger {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition
+      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nu-royal
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-nu-royal text-white hover:bg-nu-blue;
+  }
+  .btn-gold {
+    @apply bg-nu-gold text-nu-navy hover:brightness-95;
+  }
+  .btn-outline {
+    @apply border border-nu-line bg-white text-nu-ink hover:border-nu-royal hover:text-nu-royal;
+  }
+  .btn-danger {
+    @apply border border-red-200 bg-white text-red-700 hover:bg-red-50;
+  }
+  /* Small buttons stay at least 36px tall so they are easy to tap on a phone. */
+  .btn-sm {
+    @apply min-h-9 px-3 py-1.5 text-xs;
+  }
+  .card {
+    @apply rounded-2xl border border-nu-line bg-white p-5 shadow-card sm:p-6;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-nu-ink;
+  }
+  /* 16px text on phones stops iOS from zooming in when a field is tapped. */
+  .input {
+    @apply block w-full rounded-lg border border-nu-line bg-white px-3 py-2.5 text-base text-nu-ink sm:text-sm
+      placeholder:text-nu-muted/70 focus:border-nu-royal focus:outline-none focus:ring-2 focus:ring-nu-royal/20;
+  }
+  .input-error {
+    @apply border-red-400 focus:border-red-500 focus:ring-red-200;
+  }
+  .field-error {
+    @apply mt-1.5 text-xs font-medium text-red-600;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+  }
+}
