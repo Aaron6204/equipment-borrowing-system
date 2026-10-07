@@ -16,6 +16,8 @@ const borrowerRoutes = require("./routes/borrowerRoutes");
 const borrowingRoutes = require("./routes/borrowingRoutes");
 const fineRoutes = require("./routes/fineRoutes");
 const statisticsRoutes = require("./routes/statisticsRoutes");
+const authRoutes = require("./routes/authRoutes");
+const requireAuth = require("./middleware/requireAuth");
 
 const app = express();
 connectDB();
@@ -36,12 +38,13 @@ app.use(logger);
 app.get("/", (req, res) => {
   res.json({ message: "School Equipment Borrowing System API is running" });
 });
-app.use("/api/categories", categoryRoutes);
-app.use("/api/equipment", equipmentRoutes);
-app.use("/api/borrowers", borrowerRoutes);
-app.use("/api/borrowings", borrowingRoutes);
-app.use("/api/fines", fineRoutes);
-app.use("/api/statistics", statisticsRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/categories", requireAuth, categoryRoutes);
+app.use("/api/equipment", requireAuth, equipmentRoutes);
+app.use("/api/borrowers", requireAuth, borrowerRoutes);
+app.use("/api/borrowings", requireAuth, borrowingRoutes);
+app.use("/api/fines", requireAuth, fineRoutes);
+app.use("/api/statistics", requireAuth, statisticsRoutes);
 
 // 3. 404 catch-all (only reached when no route matched)
 app.use(notFound);

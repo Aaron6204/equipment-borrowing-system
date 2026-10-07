@@ -12,6 +12,13 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Send the signed-in user's token with every protected API request.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("sebs-token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 // Turns any failed request into a readable message.
 // The server always answers errors as { "message": "..." }.
 export function getErrorMessage(error: unknown): string {

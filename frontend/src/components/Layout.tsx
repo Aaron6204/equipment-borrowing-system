@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
-import { Menu, Plus, X } from "lucide-react";
+import { LogOut, Menu, Plus, X } from "lucide-react";
 import Logo from "./Logo";
 import Footer from "./Footer";
+import { useAuth } from "../context/AuthContext";
 
 const links = [
   { to: "/dashboard", label: "Dashboard" },
@@ -16,6 +17,7 @@ const links = [
 // The shared frame of every page inside the system: header, navigation, and footer.
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { user, logout } = useAuth();
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `rounded-lg px-3 py-2 text-sm font-medium transition ${
@@ -43,6 +45,9 @@ export default function Layout() {
             <Link to="/borrowings/new" className="btn-gold ml-2">
               <Plus className="size-4" /> New Booking
             </Link>
+            <button type="button" onClick={logout} className="ml-1 rounded-lg p-2 text-white/75 hover:bg-white/10 hover:text-white" aria-label="Log out">
+              <LogOut className="size-4" />
+            </button>
           </nav>
 
           <button
@@ -67,6 +72,7 @@ export default function Layout() {
               <Link to="/borrowings/new" className="btn-gold mt-2" onClick={() => setMenuOpen(false)}>
                 <Plus className="size-4" /> New Booking
               </Link>
+              <button type="button" className="btn mt-1 border border-white/20 text-white" onClick={logout}>Log out{user ? ` (${user.name})` : ""}</button>
             </div>
           </nav>
         )}
