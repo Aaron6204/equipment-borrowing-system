@@ -39,7 +39,9 @@ export default function EquipmentForm() {
       totalQuantity: 1,
       reorderLevel: 0,
       replacementCost: 0,
+      costPerUnit: 0,
       condition: "good",
+      damageNotes: "",
     },
   });
 
@@ -53,14 +55,23 @@ export default function EquipmentForm() {
         totalQuantity: existing.data.totalQuantity,
         reorderLevel: existing.data.reorderLevel,
         replacementCost: existing.data.replacementCost,
+        costPerUnit: existing.data.costPerUnit ?? 0,
         condition: existing.data.condition,
+        damageNotes: existing.data.damageNotes ?? "",
       });
     }
   }, [existing.data, categories.data, reset]);
 
   const isConsumable = watch("type") === "consumable";
+  const isDamaged = !isConsumable && watch("condition") === "damaged";
 
-  async function onSubmit(values: EquipmentFormValues) {
+  async function onSubmit(formValues: EquipmentFormValues) {
+    // Consumables are always brand new, and notes only apply to damaged items.
+    const values: EquipmentFormValues = {
+      ...formValues,
+      condition: isConsumable ? "good" : formValues.condition,
+      damageNotes: isDamaged ? formValues.damageNotes : "",
+    };
     try {
       if (isEditing) {
         await api.put(`/equipment/${id}`, values);
@@ -115,7 +126,11 @@ export default function EquipmentForm() {
             label="Type"
             htmlFor="type"
             error={errors.type?.message}
-            hint={isConsumable ? "Issued and used up (paper, glue, tape)" : "Borrowed and returned (ruler, calculator)"}
+            hint={
+              isConsumable
+                ? "Bought with cash and used up (paper, glue, tape). Always brand new, so it has no condition."
+                : "Borrowed and returned (ruler, calculator)"
+            }
           >
             <select id="type" className={`input ${errors.type ? "input-error" : ""}`} {...register("type")}>
               <option value="non-consumable">Non-consumable</option>
@@ -127,23 +142,47 @@ export default function EquipmentForm() {
             <input id="totalQuantity" type="number" className={`input ${errors.totalQuantity ? "input-error" : ""}`} {...register("totalQuantity", { valueAsNumber: true })} />
           </FormField>
 
-          <FormField label="Condition" htmlFor="condition" error={errors.condition?.message} hint="Only items in good condition can be borrowed">
-            <select id="condition" className={`input ${errors.condition ? "input-error" : ""}`} {...register("condition")}>
-              <option value="good">Good</option>
-              <option value="damaged">Damaged</option>
-              <option value="retired">Retired</option>
-            </select>
-          </FormField>
-
-          {/* Each type has one extra field that only applies to it. */}
+          {/* Each type has extra fields that only apply to it. */}
           {isConsumable ? (
-            <FormField label="Reorder level" htmlFor="reorderLevel" error={errors.reorderLevel?.message} hint="Flagged as low stock at or below this number">
-              <input id="reorderLevel" type="number" className={`input ${errors.reorderLevel ? "input-error" : ""}`} {...register("reorderLevel", { valueAsNumber: true })} />
-            </FormField>
+            <>
+              {/* Consumables: price and restocking. No condition, they are always brand new. */}
+              <FormField label="Cost per unit (₱)" htmlFor="costPerUnit" error={errors.costPerUnit?.message} hint="What a student pays in cash for one unit">
+                <input id="costPerUnit" type="number" min={0} step="0.01" className={`input ${errors.costPerUnit ? "input-error" : ""}`} {...register("costPerUnit", { valueAsNumber: true })} />
+              </FormField>
+              <FormField label="Reorder level" htmlFor="reorderLevel" error={errors.reorderLevel?.message} hint="Flagged as low stock at or below this number">
+                <input id="reorderLevel" type="number" className={`input ${errors.reorderLevel ? "input-error" : ""}`} {...register("reorderLevel", { valueAsNumber: true })} />
+              </FormField>
+            </>
           ) : (
-            <FormField label="Replacement cost (₱)" htmlFor="replacementCost" error={errors.replacementCost?.message} hint="The overdue fee never exceeds this. Use 0 for no limit">
-              <input id="replacementCost" type="number" step="0.01" className={`input ${errors.replacementCost ? "input-error" : ""}`} {...register("replacementCost", { valueAsNumber: true })} />
-            </FormField>
+            <>
+              {/* Non-consumables: condition, damage notes when damaged, and replacement cost. */}
+              <FormField label="Condition" htmlFor="condition" error={errors.condition?.message} hint="Only items in good condition can be borrowed">
+                <select id="condition" className={`input ${errors.condition ? "input-error" : ""}`} {...register("condition")}>
+                  <option value="good">Good</option>
+                  <option value="damaged">Damaged</option>
+                  <option value="retired">Retired</option>
+                </select>
+              </FormField>
+
+              {isDamaged && (
+                <div className="sm:col-span-2">
+                  <FormField label="Damage notes" htmlFor="damageNotes" error={errors.damageNotes?.message} hint="What is damaged, so the next person checking it knows">
+                    <textarea
+                      id="damageNotes"
+                      rows={3}
+                      maxLength={300}
+                      className={`input ${errors.damageNotes ? "input-error" : ""}`}
+                      placeholder="e.g. Cracked screen and the power button sticks"
+                      {...register("damageNotes")}
+                    />
+                  </FormField>
+                </div>
+              )}
+
+              <FormField label="Replacement cost (₱)" htmlFor="replacementCost" error={errors.replacementCost?.message} hint="The overdue fee never exceeds this. Use 0 for no limit">
+                <input id="replacementCost" type="number" step="0.01" className={`input ${errors.replacementCost ? "input-error" : ""}`} {...register("replacementCost", { valueAsNumber: true })} />
+              </FormField>
+            </>
           )}
         </div>
 

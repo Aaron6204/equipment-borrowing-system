@@ -38,8 +38,9 @@ export default function Layout() {
       isActive ? "bg-white/15 text-white" : "text-white/75 hover:bg-white/10 hover:text-white"
     }`;
 
-  // NEW: Calculate the total number of units in the cart (e.g., 2 basketballs = 2)
-  const totalCartUnits = cart.reduce((sum, item) => sum + item.cartQuantity, 0);
+  // Number of different items in the cart. (Units are not counted here, because consumables
+  // can be bought in large amounts. The 2-item limit for non-consumables is shown on the equipment page.)
+  const cartItemCount = cart.length;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -66,7 +67,7 @@ export default function Layout() {
               </Link>
             ) : (
               <Link to="/borrowings/new" className="btn-gold ml-2 relative">
-                <ShoppingCart className="size-4" /> Cart ({totalCartUnits}/2)
+                <ShoppingCart className="size-4" /> Cart ({cartItemCount})
               </Link>
             )}
 
@@ -100,7 +101,7 @@ export default function Layout() {
                 </Link>
               ) : (
                 <Link to="/borrowings/new" className="btn-gold mt-2" onClick={() => setMenuOpen(false)}>
-                  <ShoppingCart className="size-4" /> Checkout ({totalCartUnits}/2)
+                  <ShoppingCart className="size-4" /> Checkout ({cartItemCount})
                 </Link>
               )}
 
@@ -117,4 +118,4 @@ export default function Layout() {
       <Footer />
     </div>
   );
-}
+}

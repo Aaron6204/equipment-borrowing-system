@@ -2,7 +2,19 @@
 
 export type EquipmentType = "consumable" | "non-consumable";
 export type Condition = "good" | "damaged" | "retired";
-export type BorrowingStatus = "pending" | "approved" | "released" | "returned" | "issued" | "cancelled";
+// Loans (non-consumables): in_review -> ready_for_pickup -> active -> returned (or overdue -> returned)
+// Purchases (consumables): in_review -> ready_for_pickup -> purchased
+export type BorrowingStatus =
+  | "in_review"
+  | "ready_for_pickup"
+  | "active"
+  | "returned"
+  | "overdue"
+  | "purchased"
+  | "cancelled";
+
+// The time ranges the statistics page can be filtered by.
+export type StatisticsPeriod = "today" | "week" | "month" | "quarter" | "year" | "all";
 
 export interface Category {
   _id: string;
@@ -20,7 +32,12 @@ export interface Equipment {
   totalQuantity: number;
   reorderLevel: number;
   replacementCost: number;
+  // Consumables only: what a student pays for one unit
+  costPerUnit: number;
+  // Non-consumables only (consumables are always "good")
   condition: Condition;
+  // What is wrong with the item when its condition is "damaged"
+  damageNotes?: string;
   // Computed by the server
   held: number;
   available: number;
@@ -38,6 +55,9 @@ export interface Borrower {
 
 export interface Borrowing {
   _id: string;
+  // Shared by every item checked out together (null on older single-item records)
+  bookingId?: string | null;
+  createdAt?: string;
   equipment?: {
     _id: string;
     name: string;
@@ -49,10 +69,14 @@ export interface Borrowing {
   };
   quantity: number;
   purpose?: string;
-  status: "in_review" | "ready_for_pickup" | "active" | "returned" | "overdue" | "cancelled";
+  status: BorrowingStatus;
   borrowDate: string;
   dueDate: string;
   returnDate?: string;
+  // Consumables only: price per unit, total to pay, and when it was paid for
+  unitPrice?: number;
+  totalPrice?: number;
+  purchasedAt?: string | null;
   daysOverdue: number;
 }
 
@@ -75,6 +99,9 @@ export interface Fine {
 export interface Standing {
   borrower: string;
   activeLoans: number;
+  // Non-consumables requested or borrowed and not yet returned, and the most allowed at once
+  openLoanUnits: number;
+  loanLimit: number;
   overdueItems: number;
   unpaidFines: number;
   unpaidTotal: number;
@@ -94,6 +121,7 @@ export interface Availability {
 }
 
 export interface Statistics {
+  period: { key: StatisticsPeriod; label: string; since: string | null };
   totals: {
     equipment: number;
     consumable: number;
@@ -104,8 +132,18 @@ export interface Statistics {
     overdueNow: number;
     lowStock: number;
   };
-  byStatus: Record<BorrowingStatus, number>;
+  // Loans only (non-consumables)
+  byStatus: Record<Exclude<BorrowingStatus, "purchased">, number>;
   returns: { returned: number; onTime: number; late: number; onTimeRate: number; averageLoanDays: number };
   mostBorrowed: { _id: string; name: string; type: EquipmentType; units: number; times: number }[];
+  // Consumables bought with cash
+  sales: {
+    count: number;
+    units: number;
+    revenue: number;
+    average: number;
+    awaitingPickup: number;
+    topSellers: { _id: string; name: string; units: number; revenue: number; times: number }[];
+  };
   fines: { count: number; collected: number; unpaid: number; highest: number; average: number };
 }

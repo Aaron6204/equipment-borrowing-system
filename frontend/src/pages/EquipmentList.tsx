@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Link, useSearchParams, useOutletContext } from "react-router-dom";
-import { Pencil, Plus, Search, Trash2, ShoppingCart, Ban, Minus} from "lucide-react";
+import { Pencil, Plus, Search, Trash2, ShoppingCart, Ban, Minus, Info } from "lucide-react";
 import api, { getErrorMessage } from "../api/axios";
 import { useFetch } from "../hooks/useFetch";
 import { useDebounce } from "../hooks/useDebounce";
 import { useToast } from "../hooks/useToast";
 import { useAuth } from "../context/AuthContext";
-import type { Category, Equipment } from "../types";
+import type { Borrowing, Category, Equipment } from "../types";
+import { formatPeso } from "../utils/format";
+import { MAX_LOAN_ITEMS, loanUnitsInCart, openLoanUnits } from "../utils/cart";
 import type { CartItem } from "../components/Layout";
 import PageHeader from "../components/PageHeader";
 import Loading from "../components/Loading";
@@ -52,7 +54,11 @@ export default function EquipmentList() {
   const lowStockCount = items.filter((item) => item.lowStock).length;
   const hasFilters = Boolean(search || category || type || condition);
 
-  const totalCartUnits = cart.reduce((sum, item) => sum + item.cartQuantity, 0);
+  // Borrowing limit: at most 2 non-consumables at a time, counting what the student has already
+  // requested or borrowed plus what is in the cart. Consumables only stop at the stock.
+  const myBookings = useFetch<Borrowing[]>(!isAdmin && user?.id ? `/borrowings?borrower=${user.id}` : null);
+  const loansAlreadyOpen = openLoanUnits(myBookings.data ?? []);
+  const loanSlotsLeft = Math.max(MAX_LOAN_ITEMS - loansAlreadyOpen - loanUnitsInCart(cart), 0);
 
   async function confirmDelete() {
     if (!toDelete) return;
@@ -77,15 +83,15 @@ export default function EquipmentList() {
   }
 
   function addToCart(item: Equipment) {
-    if (totalCartUnits >= 2) {
-      showToast("You can only borrow up to 2 items total.", "error");
+    if (item.type !== "consumable" && loanSlotsLeft <= 0) {
+      showToast(`You can only borrow ${MAX_LOAN_ITEMS} non-consumable items at a time.`, "error");
       return;
     }
     setCart((prev) => [...prev, { ...item, cartQuantity: 1 }]);
   }
 
   function updateQuantity(itemId: string, delta: number) {
-    setCart((prev) => 
+    setCart((prev) =>
       prev.map(item => {
         if (item._id === itemId) {
           return { ...item, cartQuantity: item.cartQuantity + delta };
@@ -93,6 +99,13 @@ export default function EquipmentList() {
         return item;
       }).filter(item => item.cartQuantity > 0)
     );
+  }
+
+  // Consumables: set a typed amount, kept between 1 and the units available.
+  function setQuantity(item: Equipment, typed: number): number {
+    const quantity = Number.isFinite(typed) ? Math.min(Math.max(Math.floor(typed), 1), item.available) : 1;
+    setCart((prev) => prev.map((c) => (c._id === item._id ? { ...c, cartQuantity: quantity } : c)));
+    return quantity;
   }
 
   return (
@@ -112,6 +125,20 @@ export default function EquipmentList() {
             <h3 className="font-bold">Account Suspended</h3>
             <p className="text-sm mt-1">Your borrowing privileges have been temporarily revoked. You cannot add items to your bag. Please contact the administrator for assistance.</p>
           </div>
+        </div>
+      )}
+
+      {/* Borrowing limit, for students */}
+      {!isAdmin && !isSuspended && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-nu-line bg-white p-4 text-sm text-nu-ink">
+          <Info className="mt-0.5 size-4 shrink-0 text-nu-royal" />
+          <p>
+            <span className="font-semibold text-nu-navy">
+              You can borrow {loanSlotsLeft} more non-consumable item{loanSlotsLeft === 1 ? "" : "s"}
+            </span>{" "}
+            (up to {MAX_LOAN_ITEMS} at a time{loansAlreadyOpen > 0 ? `, ${loansAlreadyOpen} already requested or borrowed` : ""}).
+            Consumables have no limit, only what is in stock.
+          </p>
         </div>
       )}
 
@@ -190,6 +217,9 @@ export default function EquipmentList() {
                 
                 const cartItem = cart.find((i) => i._id === item._id);
                 const inCart = !!cartItem;
+                // Non-consumables count toward the 2-item limit; consumables only stop at the stock.
+                const isConsumable = item.type === "consumable";
+                const limitReached = !isConsumable && loanSlotsLeft <= 0;
 
                 return (
                   <li key={item._id} className="card flex min-w-0 flex-col">
@@ -222,10 +252,21 @@ export default function EquipmentList() {
                       </div>
                     </div>
 
-                    <div className="mt-3 flex min-h-6 flex-wrap gap-1.5">
-                      {item.condition !== "good" && <StatusBadge value={item.condition} />}
+                    <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
+                      {/* Consumables are bought, so show what one unit costs. */}
+                      {item.type === "consumable" && (
+                        <span className="mr-auto text-sm font-semibold text-nu-navy">
+                          {formatPeso(item.costPerUnit ?? 0)} <span className="font-normal text-nu-muted">per unit</span>
+                        </span>
+                      )}
+                      {item.type !== "consumable" && item.condition !== "good" && <StatusBadge value={item.condition} />}
                       {item.lowStock && <StatusBadge value={item.totalQuantity === 0 ? "out of stock" : "low stock"} />}
                     </div>
+                    {item.type !== "consumable" && item.condition === "damaged" && item.damageNotes && (
+                      <p className="mt-2 line-clamp-2 text-sm text-red-700" title={item.damageNotes}>
+                        {item.damageNotes}
+                      </p>
+                    )}
 
                     <div className="mt-4 flex gap-2 border-t border-nu-line pt-4">
                       {isAdmin ? (
@@ -248,12 +289,33 @@ export default function EquipmentList() {
                             >
                               <Minus className="size-3.5" />
                             </button>
-                            <span className="font-bold text-nu-navy">{cartItem.cartQuantity}</span>
-                            <button 
-                              type="button" 
-                              onClick={() => updateQuantity(item._id, 1)} 
-                              disabled={totalCartUnits >= 2 || cartItem.cartQuantity >= item.available} 
+                            {isConsumable ? (
+                              // Consumables can be bought in any amount up to the stock, so allow typing it.
+                              // The amount is saved when the box loses focus (or on Enter).
+                              <input
+                                key={cartItem.cartQuantity}
+                                type="number"
+                                min={1}
+                                max={item.available}
+                                defaultValue={cartItem.cartQuantity}
+                                aria-label={`Quantity of ${item.name}`}
+                                className="w-20 rounded-md border border-gray-200 bg-white px-2 py-1 text-center font-bold text-nu-navy"
+                                onBlur={(e) => {
+                                  e.currentTarget.value = String(setQuantity(item, e.currentTarget.valueAsNumber));
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") e.currentTarget.blur();
+                                }}
+                              />
+                            ) : (
+                              <span className="font-bold text-nu-navy">{cartItem.cartQuantity}</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => updateQuantity(item._id, 1)}
+                              disabled={limitReached || cartItem.cartQuantity >= item.available}
                               className="btn-outline btn-sm px-3 bg-white disabled:opacity-50"
+                              aria-label={`Add one more ${item.name}`}
                             >
                               <Plus className="size-3.5" />
                             </button>
@@ -261,11 +323,17 @@ export default function EquipmentList() {
                         ) : (
                           <button
                             type="button"
-                            disabled={!canBorrow || totalCartUnits >= 2}
+                            disabled={!canBorrow || limitReached}
                             onClick={() => addToCart(item)}
                             className="btn-primary btn-sm flex-1 disabled:opacity-50"
                           >
-                            <ShoppingCart className="size-4 mr-1 inline" /> Add to Cart
+                            {limitReached && canBorrow ? (
+                              `Limit reached (${MAX_LOAN_ITEMS} max)`
+                            ) : (
+                              <>
+                                <ShoppingCart className="size-4 mr-1 inline" /> Add to Cart
+                              </>
+                            )}
                           </button>
                         )
                       )}
@@ -290,4 +358,4 @@ export default function EquipmentList() {
       />
     </>
   );
-}
+}

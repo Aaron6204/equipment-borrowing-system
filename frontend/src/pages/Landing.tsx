@@ -54,6 +54,15 @@ export default function Landing() {
 
       <main>
         <section className="relative isolate overflow-hidden bg-nu-blue text-white">
+          {/* Campus photo behind a see-through blue layer. The blue is strongest on the left,
+              where the headline sits, and lighter on the right so the building shows through. */}
+          <img
+            src="/images/nu-clark-campus.webp"
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 size-full object-cover object-[center_35%] grayscale"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-nu-blue/95 via-nu-blue/85 to-nu-blue/70" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_10%,rgba(245,197,66,.27),transparent_29%),radial-gradient(circle_at_90%_80%,rgba(91,119,255,.32),transparent_32%)]" />
           <div className="absolute -right-24 top-14 size-80 rounded-full border-[36px] border-white/10" />
           <div className="relative mx-auto grid max-w-7xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-[1.1fr_.9fr] lg:px-8 lg:py-24">

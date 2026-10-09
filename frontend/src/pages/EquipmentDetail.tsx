@@ -51,9 +51,17 @@ export default function EquipmentDetail() {
         <section className="card lg:col-span-2">
           <div className="flex flex-wrap gap-2">
             <StatusBadge value={item.type} />
-            <StatusBadge value={item.condition} />
+            {/* Consumables are always brand new, so only non-consumables show a condition. */}
+            {!isConsumable && <StatusBadge value={item.condition} />}
             {item.lowStock && <StatusBadge value={item.totalQuantity === 0 ? "out of stock" : "low stock"} />}
           </div>
+
+          {!isConsumable && item.condition === "damaged" && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <p className="font-semibold">Damage notes</p>
+              <p className="mt-1 whitespace-pre-line">{item.damageNotes || "No details were recorded."}</p>
+            </div>
+          )}
 
           <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-xl bg-nu-mist p-4">
@@ -61,7 +69,7 @@ export default function EquipmentDetail() {
               <dd className="text-2xl font-bold text-nu-navy">{item.totalQuantity}</dd>
             </div>
             <div className="rounded-xl bg-nu-mist p-4">
-              <dt className="text-xs text-nu-muted">{isConsumable ? "Reserved" : "Reserved or out"}</dt>
+              <dt className="text-xs text-nu-muted">{isConsumable ? "Reserved for buyers" : "Reserved or out"}</dt>
               <dd className="text-2xl font-bold text-nu-navy">{item.held}</dd>
             </div>
             <div className="rounded-xl bg-nu-gold/30 p-4">
@@ -69,16 +77,16 @@ export default function EquipmentDetail() {
               <dd className="text-2xl font-bold text-nu-navy">{item.available}</dd>
             </div>
             <div className="rounded-xl bg-nu-mist p-4">
-              <dt className="text-xs text-nu-muted">{isConsumable ? "Reorder level" : "Loan period"}</dt>
+              <dt className="text-xs text-nu-muted">{isConsumable ? "Cost per unit" : "Loan period"}</dt>
               <dd className="text-2xl font-bold text-nu-navy">
-                {isConsumable ? item.reorderLevel : `${item.category?.maxLoanDays ?? "—"} d`}
+                {isConsumable ? formatPeso(item.costPerUnit ?? 0) : `${item.category?.maxLoanDays ?? "—"} d`}
               </dd>
             </div>
           </dl>
 
           <p className="mt-5 text-sm leading-relaxed text-nu-muted">
             {isConsumable
-              ? "This is a consumable. It is issued and used up, so it has no due date and no overdue fee. Issuing it reduces the stock."
+              ? `This is a consumable. Students buy it for ${formatPeso(item.costPerUnit ?? 0)} per unit and pay in cash at pickup. It is used up, so it is never returned and has no due date or overdue fee. Each sale reduces the stock, which is flagged as low at ${item.reorderLevel} unit(s).`
               : `This item must be returned. Students may keep it for ${item.category?.maxLoanDays ?? "—"} day(s) and faculty for twice as long. A late return costs ${formatPeso(item.category?.dailyFee ?? 0)} per unit per day${item.replacementCost > 0 ? `, up to its replacement cost of ${formatPeso(item.replacementCost)} per unit` : ""}.`}
           </p>
         </section>
@@ -114,12 +122,15 @@ export default function EquipmentDetail() {
         </section>
       </div>
 
-      {/* Borrowing history */}
-      <h2 className="mb-3 mt-8 text-lg font-bold text-nu-navy">Borrowing history</h2>
+      {/* Borrowing or purchase history */}
+      <h2 className="mb-3 mt-8 text-lg font-bold text-nu-navy">{isConsumable ? "Purchase history" : "Borrowing history"}</h2>
       {history.loading && <Loading />}
       {history.error && <ErrorMessage message={history.error} onRetry={history.refetch} />}
       {history.data && history.data.length === 0 && (
-        <EmptyState title="Never borrowed" message="Borrowings of this item will be listed here." />
+        <EmptyState
+          title={isConsumable ? "Never bought" : "Never borrowed"}
+          message={isConsumable ? "Purchases of this item will be listed here." : "Borrowings of this item will be listed here."}
+        />
       )}
       {history.data && history.data.length > 0 && (
         <ul className="card divide-y divide-nu-line !p-0">
@@ -127,11 +138,13 @@ export default function EquipmentDetail() {
             <li key={borrowing._id} className="flex flex-wrap items-center justify-between gap-2 p-4">
               <div className="min-w-0">
                 <p className="truncate font-semibold text-nu-navy">
-                  {borrowing.quantity} unit(s) to {borrowing.borrower?.name ?? "Deleted borrower"}
+                  {borrowing.quantity} unit(s) {isConsumable ? "bought by" : "to"} {borrowing.borrower?.name ?? "Deleted borrower"}
                 </p>
                 <p className="text-sm text-nu-muted">
                   {formatDate(borrowing.borrowDate)}
-                  {borrowing.dueDate && `, due ${formatDate(borrowing.dueDate)}`}
+                  {isConsumable
+                    ? `, ${formatPeso(borrowing.totalPrice ?? 0)}${borrowing.status === "purchased" ? " paid" : " to pay"}`
+                    : borrowing.dueDate && `, due ${formatDate(borrowing.dueDate)}`}
                 </p>
               </div>
               <div className="flex gap-1.5">
