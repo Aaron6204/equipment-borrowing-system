@@ -18,7 +18,7 @@ const fineRoutes = require("./routes/fineRoutes");
 const statisticsRoutes = require("./routes/statisticsRoutes");
 const authRoutes = require("./routes/authRoutes");
 const requireAuth = require("./middleware/requireAuth");
-
+const userRoutes = require("./routes/userRoutes");
 const app = express();
 connectDB();
 
@@ -44,7 +44,8 @@ app.use("/api/equipment", requireAuth, equipmentRoutes);
 app.use("/api/borrowers", requireAuth, borrowerRoutes);
 app.use("/api/borrowings", requireAuth, borrowingRoutes);
 app.use("/api/fines", requireAuth, fineRoutes);
-app.use("/api/statistics", requireAuth, statisticsRoutes);
+app.use("/api/statistics", requireAuth, statisticsRoutes); 
+app.use("/api/users", requireAuth, userRoutes);
 
 // 3. 404 catch-all (only reached when no route matched)
 app.use(notFound);

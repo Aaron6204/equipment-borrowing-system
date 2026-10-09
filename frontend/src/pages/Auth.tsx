@@ -27,11 +27,15 @@ export default function Auth({ mode }: { mode: AuthMode }) {
         : { name: form.get("name"), studentNumber: form.get("studentNumber"), email: form.get("email"), password: form.get("password") };
       const { data } = await api.post(isLogin ? "/auth/login" : "/auth/register", payload);
       if (isLogin) {
-        startSession(data.token, data.user);
-        navigate("/dashboard", { replace: true });
-      } else {
-        navigate("/login", { replace: true, state: { registrationSuccess: true } });
-      }
+  startSession(data.token, data.user);
+  if (data.user.role === 'admin') {
+    navigate("/dashboard", { replace: true });
+  } else {
+    navigate("/equipment", { replace: true });
+  }
+} else {
+  navigate("/login", { replace: true, state: { registrationSuccess: true } });
+}
     } catch (error) {
       setMessage(getErrorMessage(error));
     } finally {

@@ -38,15 +38,22 @@ export interface Borrower {
 
 export interface Borrowing {
   _id: string;
-  equipment: Equipment | null;
-  borrower: Borrower | null;
+  equipment?: {
+    _id: string;
+    name: string;
+    type: string;
+  };
+  borrower?: {
+    _id: string;
+    name: string;
+  };
   quantity: number;
-  purpose: string;
+  purpose?: string;
+  status: "in_review" | "ready_for_pickup" | "active" | "returned" | "overdue" | "cancelled";
   borrowDate: string;
-  dueDate: string | null;
-  returnDate: string | null;
-  status: BorrowingStatus;
-  daysOverdue: number; // computed by the server
+  dueDate: string;
+  returnDate?: string;
+  daysOverdue: number;
 }
 
 export interface OverdueBorrowing extends Borrowing {

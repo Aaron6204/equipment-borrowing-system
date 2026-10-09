@@ -15,13 +15,17 @@ async function getStatistics(req, res) {
   const borrowings = await Borrowing.find().populate("equipment", "name type");
   const fines = await Fine.find();
 
-  // 1. Borrowings counted per status
-  const byStatus = { pending: 0, approved: 0, released: 0, returned: 0, issued: 0, cancelled: 0 };
-  borrowings.forEach((b) => { byStatus[b.status] += 1; });
+  // 1. Borrowings counted per NEW pipeline status
+  const byStatus = { in_review: 0, ready_for_pickup: 0, active: 0, returned: 0, overdue: 0, cancelled: 0 };
+  borrowings.forEach((b) => { 
+    if (byStatus[b.status] !== undefined) {
+      byStatus[b.status] += 1; 
+    }
+  });
 
-  // 2. Overdue right now
+  // 2. Overdue right now (officially marked overdue, or active but past the due date)
   const overdueNow = borrowings.filter(
-    (b) => b.status === "released" && daysOverdue(b.dueDate) > 0
+    (b) => b.status === "overdue" || (b.status === "active" && daysOverdue(b.dueDate) > 0)
   ).length;
 
   // 3. On-time return rate = on-time returns / all returns
@@ -68,7 +72,8 @@ async function getStatistics(req, res) {
       nonConsumable: equipment.length - consumables.length,
       borrowers: borrowerCount,
       borrowings: borrowings.length,
-      activeBorrowings: byStatus.approved + byStatus.released,
+      // "Active Borrowings" now counts anything ready for pickup, actively checked out, or currently overdue
+      activeBorrowings: byStatus.ready_for_pickup + byStatus.active + byStatus.overdue,
       overdueNow,
       lowStock,
     },

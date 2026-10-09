@@ -25,13 +25,13 @@ const borrowingSchema = new mongoose.Schema(
     // When the item was handed over (released or issued).
     releasedAt: { type: Date, default: null },
     returnDate: { type: Date, default: null },
-    status: {
+   status: {
       type: String,
       enum: {
-        values: ["pending", "approved", "released", "returned", "issued", "cancelled"],
+        values: ["in_review", "ready_for_pickup", "active", "returned", "overdue", "cancelled"],
         message: "Status is not valid",
       },
-      default: "pending",
+      default: "in_review",
     },
   },
   { timestamps: true }

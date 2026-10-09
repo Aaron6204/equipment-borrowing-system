@@ -3,25 +3,21 @@ const Borrowing = require("../models/Borrowing");
 const Fine = require("../models/Fine");
 const { daysOverdue } = require("./dates");
 
-// Which status may follow which. Anything not listed here is rejected.
-// - non-consumable: pending -> approved -> released -> returned
-// - consumable:     pending -> approved -> issued (final, because it is used up)
+// Custom workflow map
 function nextStatuses(currentStatus, equipmentType) {
-  const handOver = equipmentType === "consumable" ? "issued" : "released";
   const flow = {
-    pending: ["approved", "cancelled"],
-    approved: [handOver, "cancelled"],
-    released: ["returned"],
+    in_review: ["ready_for_pickup", "cancelled"],
+    ready_for_pickup: ["active", "cancelled"],
+    active: ["returned", "overdue"],
+    overdue: ["returned"],
     returned: [],
-    issued: [],
-    cancelled: [],
+    cancelled: []
   };
   return flow[currentStatus] || [];
 }
 
-// Statuses that hold units of an item: approved (reserved) and released (out).
-// An issued consumable is not held, because it was already deducted from stock.
-const HOLDING_STATUSES = ["approved", "released"];
+// Statuses that hold units of an item so others can't borrow them
+const HOLDING_STATUSES = ["ready_for_pickup", "active", "overdue"];
 
 // Faculty may keep an item twice as long as students.
 const FACULTY_LOAN_MULTIPLIER = 2;
@@ -39,7 +35,6 @@ async function getHeldQuantity(equipment, excludeBorrowingId = null) {
 }
 
 // Available units = total quantity - held units (never below zero).
-// Damaged or retired equipment is never available.
 async function getAvailability(equipment, excludeBorrowingId = null) {
   const held = await getHeldQuantity(equipment, excludeBorrowingId);
   const usable = equipment.condition === "good";
@@ -54,15 +49,15 @@ function computeFee(days, dailyFee, quantity, replacementCost) {
   return cap > 0 ? Math.min(fee, cap) : fee;
 }
 
-// A borrower's standing: active loans, overdue items, unpaid fines, and
-// whether they are blocked from borrowing again.
+// A borrower's standing: active loans, overdue items, unpaid fines, and whether they are blocked
 async function getStanding(borrower) {
   const active = await Borrowing.find({
     borrower: borrower._id,
     status: { $in: HOLDING_STATUSES },
-  });
+  }).populate("equipment", "name"); // Bring in the item name so we can show it
+
   const overdueItems = active.filter(
-    (b) => b.status === "released" && daysOverdue(b.dueDate) > 0
+    (b) => (b.status === "active" || b.status === "overdue") && daysOverdue(b.dueDate) > 0
   ).length;
 
   const unpaidFines = await Fine.find({ borrower: borrower._id, status: "unpaid" });
@@ -73,8 +68,15 @@ async function getStanding(borrower) {
   if (unpaidTotal > 0) reasons.push(`Has unpaid fines of PHP ${unpaidTotal}`);
   if (overdueItems > 0) reasons.push(`Has ${overdueItems} overdue item(s)`);
 
+  // NEW: Grab the name and due date of everything they currently have
+  const activeLoansList = active.map(b => ({
+    itemName: b.equipment?.name || "Deleted Item",
+    dueDate: b.dueDate
+  }));
+
   return {
     activeLoans: active.length,
+    activeLoansList, // Send this list to the frontend
     overdueItems,
     unpaidFines: unpaidFines.length,
     unpaidTotal,

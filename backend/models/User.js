@@ -1,22 +1,20 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-// Accounts are separate from borrower records. A user signs in to access SEBS,
-// while a borrower is the person attached to an equipment transaction.
-const userSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: [true, "Name is required"], trim: true, maxlength: 100 },
-    studentNumber: { type: String, required: [true, "School ID number is required"], trim: true, unique: true },
-    email: {
-      type: String,
-      required: [true, "Email is required"],
-      unique: true,
-      trim: true,
-      lowercase: true,
-      match: [/^\S+@\S+\.\S+$/, "Email is not valid"],
-    },
-    passwordHash: { type: String, required: true, select: false },
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  passwordHash: { type: String, required: true },
+  studentNumber: { type: String }, // Optional for staff
+  // ADD THIS ROLE FIELD:
+  role: { 
+    type: String, 
+    enum: ['admin', 'borrower'], 
+    default: 'borrower' 
   },
-  { timestamps: true }
-);
+  status: { type: String,
+     enum: ["active", "suspended"], 
+     default: "active" }
 
-module.exports = mongoose.model("User", userSchema);
+}, { timestamps: true });
+
+module.exports = mongoose.model('User', userSchema);
