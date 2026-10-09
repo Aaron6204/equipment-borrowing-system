@@ -2,26 +2,39 @@ const Borrowing = require("../models/Borrowing");
 const Equipment = require("../models/Equipment");
 const Borrower = require("../models/Borrower");
 const Fine = require("../models/Fine");
+const User = require("../models/User"); // <-- Added User model to translate IDs
 const httpError = require("../utils/httpError");
 const { computeDueDate, daysOverdue } = require("../utils/dates");
 const {
-  nextStatuses,
   FACULTY_LOAN_MULTIPLIER,
   getAvailability,
   computeFee,
   getStanding,
 } = require("../utils/rules");
 
-// Loads a borrowing together with its equipment (and category) and borrower.
+// --- NEW HELPER: Translates frontend User IDs into database Borrower IDs ---
+async function resolveBorrowerId(providedId) {
+  try {
+    const userAccount = await User.findById(providedId);
+    if (userAccount) {
+      const profile = await Borrower.findOne({ email: userAccount.email });
+      return profile ? profile._id : providedId;
+    }
+  } catch (err) {
+    // If it fails to cast, it's likely already a standard Borrower ID, so just ignore
+  }
+  return providedId;
+}
+// --------------------------------------------------------------------------
+
 function findBorrowing(id) {
   return Borrowing.findById(id)
     .populate({ path: "equipment", populate: { path: "category" } })
     .populate("borrower");
 }
 
-// Adds the computed "daysOverdue" value. Only released items can be overdue.
 function withOverdue(borrowing) {
-  const days = borrowing.status === "released" ? daysOverdue(borrowing.dueDate) : 0;
+  const days = borrowing.status === "active" ? daysOverdue(borrowing.dueDate) : 0;
   return { ...borrowing.toObject(), daysOverdue: days };
 }
 
@@ -30,8 +43,12 @@ async function getBorrowings(req, res) {
   const { status, borrower, equipment } = req.query;
   const filter = {};
   if (status) filter.status = status;
-  if (borrower) filter.borrower = borrower;
   if (equipment) filter.equipment = equipment;
+  
+  if (borrower) {
+    // Automatically translate the ID from the frontend
+    filter.borrower = await resolveBorrowerId(borrower);
+  }
 
   const borrowings = await Borrowing.find(filter)
     .populate({ path: "equipment", populate: { path: "category" } })
@@ -42,10 +59,8 @@ async function getBorrowings(req, res) {
 }
 
 // PROCESSING: GET /api/borrowings/overdue
-// Released items that are past their due date, with days overdue and the running fee.
-// (Defined before "/:id" so that "overdue" is not read as an ID.)
 async function getOverdueBorrowings(req, res) {
-  const released = await Borrowing.find({ status: "released", dueDate: { $lt: new Date() } })
+  const released = await Borrowing.find({ status: "active", dueDate: { $lt: new Date() } })
     .populate({ path: "equipment", populate: { path: "category" } })
     .populate("borrower")
     .sort("dueDate");
@@ -68,42 +83,50 @@ async function getBorrowingById(req, res) {
 }
 
 // PROCESSING: POST /api/borrowings - create a borrowing request
-// Checks the borrower's standing and the availability, then computes the due date.
 async function createBorrowing(req, res) {
-  const { equipment: equipmentId, borrower: borrowerId, purpose } = req.body;
+  // Grab the schedule choice (defaulting to 'today' if not provided)
+  const { equipment: equipmentId, borrower: rawBorrowerId, purpose, schedule = "today" } = req.body;
   const quantity = Number(req.body.quantity);
 
   if (!equipmentId) throw httpError(400, "Equipment is required");
-  if (!borrowerId) throw httpError(400, "Borrower is required");
+  if (!rawBorrowerId) throw httpError(400, "Borrower is required");
   if (!Number.isInteger(quantity) || quantity < 1) {
     throw httpError(400, "Quantity must be a whole number of at least 1");
   }
 
+  // Automatically translate the ID from the frontend's cart
+  const actualBorrowerId = await resolveBorrowerId(rawBorrowerId);
+
   const equipment = await Equipment.findById(equipmentId).populate("category");
   if (!equipment) throw httpError(404, "Equipment not found");
-  const borrower = await Borrower.findById(borrowerId);
-  if (!borrower) throw httpError(404, "Borrower not found");
+  
+  const borrower = await Borrower.findById(actualBorrowerId);
+  if (!borrower) throw httpError(404, "Borrower profile not found");
 
-  // Rule 1: a blocked borrower cannot borrow.
   const standing = await getStanding(borrower);
   if (standing.blocked) {
     throw httpError(400, `Borrower is blocked: ${standing.reasons.join("; ")}`);
   }
 
-  // Rule 2: the request cannot exceed the available units.
   const { available, usable } = await getAvailability(equipment);
   if (!usable) throw httpError(400, `Equipment is ${equipment.condition} and cannot be borrowed`);
   if (quantity > available) {
     throw httpError(400, `Only ${available} unit(s) of ${equipment.name} available`);
   }
 
-  // Rule 3: the due date is computed by the server, never sent by the client.
-  // Consumables are not returned, so they have no due date.
   const borrowDate = new Date();
   let dueDate = null;
+  
   if (equipment.type === "non-consumable") {
-    const multiplier = borrower.type === "faculty" ? FACULTY_LOAN_MULTIPLIER : 1;
-    dueDate = computeDueDate(borrowDate, equipment.category.maxLoanDays * multiplier);
+    dueDate = new Date();
+    
+    // If they selected tomorrow, push the due date forward by 1 day
+    if (schedule === "tomorrow") {
+      dueDate.setDate(dueDate.getDate() + 1);
+    }
+    
+    // Set the due date to exactly 9:00 PM (21:00:00 local time) on the chosen day
+    dueDate.setHours(21, 0, 0, 0);
   }
 
   const borrowing = await Borrowing.create({
@@ -119,11 +142,10 @@ async function createBorrowing(req, res) {
 }
 
 // PUT /api/borrowings/:id - update quantity or purpose
-// Rule: only a pending borrowing can be edited. Status changes go through PATCH.
 async function updateBorrowing(req, res) {
   const borrowing = await findBorrowing(req.params.id);
   if (!borrowing) throw httpError(404, "Borrowing not found");
-  if (borrowing.status !== "pending") {
+  if (borrowing.status !== "in_review") {
     throw httpError(400, `This borrowing is already ${borrowing.status} and can no longer be edited`);
   }
 
@@ -136,14 +158,11 @@ async function updateBorrowing(req, res) {
   }
   if (req.body.purpose !== undefined) borrowing.purpose = req.body.purpose;
 
-  await borrowing.save(); // save() runs the schema validation
+  await borrowing.save();
   res.json(borrowing);
 }
 
-// PROCESSING: PATCH /api/borrowings/:id/status - rule-based status change
-// non-consumable: pending -> approved -> released -> returned
-// consumable:     pending -> approved -> issued
-// Either kind may be cancelled before it is handed over.
+// PROCESSING: PATCH /api/borrowings/:id/status - custom pipeline
 async function changeBorrowingStatus(req, res) {
   const newStatus = req.body.status;
   const borrowing = await findBorrowing(req.params.id);
@@ -153,8 +172,16 @@ async function changeBorrowingStatus(req, res) {
   const equipment = borrowing.equipment;
   if (!equipment) throw httpError(400, "The equipment for this borrowing no longer exists");
 
-  // Rule 1: only the next allowed status is accepted. No skipping, no going back.
-  const allowed = nextStatuses(borrowing.status, equipment.type);
+  const flow = {
+    in_review: ["ready_for_pickup", "cancelled"],
+    ready_for_pickup: ["active", "cancelled"],
+    active: ["returned", "overdue"],
+    overdue: ["returned"],
+    returned: [],
+    cancelled: []
+  };
+
+  const allowed = flow[borrowing.status] || [];
   if (!allowed.includes(newStatus)) {
     const hint = allowed.length ? `Allowed: ${allowed.join(" or ")}` : "This borrowing is final";
     throw httpError(400, `Cannot change status from ${borrowing.status} to ${newStatus}. ${hint}`);
@@ -162,33 +189,20 @@ async function changeBorrowingStatus(req, res) {
 
   let fine = null;
 
-  if (newStatus === "approved") {
-    // Rule 2: availability is checked again, because other requests
-    // may have been approved since this one was created.
+  if (newStatus === "ready_for_pickup") {
     const { available } = await getAvailability(equipment);
     if (borrowing.quantity > available) {
       throw httpError(400, `Cannot approve: only ${available} unit(s) available`);
     }
   }
 
-  if (newStatus === "released") {
-    borrowing.releasedAt = new Date();
-  }
-
-  if (newStatus === "issued") {
-    // Rule 3: issuing a consumable deducts it from stock for good.
-    if (equipment.totalQuantity < borrowing.quantity) {
-      throw httpError(400, `Cannot issue: only ${equipment.totalQuantity} left in stock`);
-    }
-    equipment.totalQuantity -= borrowing.quantity;
-    await equipment.save();
+  if (newStatus === "active") {
     borrowing.releasedAt = new Date();
   }
 
   if (newStatus === "returned") {
     borrowing.returnDate = new Date();
 
-    // Rule 4: a late return creates a fine automatically.
     const days = daysOverdue(borrowing.dueDate, borrowing.returnDate);
     if (days > 0) {
       const dailyFee = equipment.category?.dailyFee ?? 0;
@@ -205,16 +219,15 @@ async function changeBorrowingStatus(req, res) {
   borrowing.status = newStatus;
   await borrowing.save();
 
-  res.json({ message: `Borrowing ${newStatus}`, borrowing: withOverdue(borrowing), fine });
+  res.json({ message: `Borrowing updated to ${newStatus.replace(/_/g, ' ')}`, borrowing: withOverdue(borrowing), fine });
 }
 
 // DELETE /api/borrowings/:id - delete a borrowing
-// Rule: approved or released borrowings hold units, so they cannot be deleted.
 async function deleteBorrowing(req, res) {
   const borrowing = await Borrowing.findById(req.params.id);
   if (!borrowing) throw httpError(404, "Borrowing not found");
 
-  if (["approved", "released"].includes(borrowing.status)) {
+  if (["ready_for_pickup", "active"].includes(borrowing.status)) {
     throw httpError(400, `Cannot delete a borrowing that is ${borrowing.status}`);
   }
   const unpaid = await Fine.countDocuments({ borrowing: borrowing._id, status: "unpaid" });

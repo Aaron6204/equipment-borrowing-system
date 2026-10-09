@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Settings2 } from "lucide-react";
 import api, { getErrorMessage } from "../api/axios";
 import { useFetch } from "../hooks/useFetch";
 import { useToast } from "../hooks/useToast";
-import type { Borrowing, BorrowingStatus } from "../types";
+import { useAuth } from "../context/AuthContext";
+import type { Borrowing } from "../types";
 import { formatDate, formatPeso } from "../utils/format";
 import PageHeader from "../components/PageHeader";
 import Loading from "../components/Loading";
@@ -13,50 +14,65 @@ import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-const tabs: { value: BorrowingStatus | ""; label: string }[] = [
+const tabs: { value: string; label: string }[] = [
   { value: "", label: "All" },
-  { value: "pending", label: "Pending" },
-  { value: "approved", label: "Approved" },
-  { value: "released", label: "Released" },
+  { value: "in_review", label: "In Review" },
+  { value: "ready_for_pickup", label: "Ready for Pickup" },
+  { value: "active", label: "Active" },
   { value: "returned", label: "Returned" },
-  { value: "issued", label: "Issued" },
+  { value: "overdue", label: "Overdue" },
   { value: "cancelled", label: "Cancelled" },
 ];
 
-// The buttons a borrowing may show, based on its current status and the item type.
-// This mirrors the rules enforced by the API, which has the final say.
-function nextActions(borrowing: Borrowing): { status: BorrowingStatus; label: string; primary: boolean }[] {
-  const isConsumable = borrowing.equipment?.type === "consumable";
-  if (borrowing.status === "pending") {
-    return [
-      { status: "approved", label: "Approve", primary: true },
-      { status: "cancelled", label: "Cancel", primary: false },
-    ];
+function nextActions(borrowing: Borrowing, isAdmin: boolean): { status: string; label: string; primary: boolean }[] {
+  if (borrowing.status === "in_review") {
+    if (isAdmin) {
+      return [
+        { status: "ready_for_pickup", label: "Approve Booking", primary: true },
+        { status: "cancelled", label: "Cancel", primary: false },
+      ];
+    } else {
+      return [{ status: "cancelled", label: "Cancel Reservation", primary: false }];
+    }
   }
-  if (borrowing.status === "approved") {
-    return [
-      isConsumable
-        ? { status: "issued", label: "Issue", primary: true }
-        : { status: "released", label: "Release", primary: true },
-      { status: "cancelled", label: "Cancel", primary: false },
-    ];
+  
+  if (borrowing.status === "ready_for_pickup") {
+    if (isAdmin) {
+      return [
+        { status: "active", label: "Item Handed Over", primary: true },
+        { status: "cancelled", label: "Cancel", primary: false },
+      ];
+    }
+    return [];
   }
-  if (borrowing.status === "released") {
-    return [{ status: "returned", label: "Mark returned", primary: true }];
+  
+  if (borrowing.status === "active" || borrowing.status === "overdue") {
+    if (isAdmin) {
+      return [{ status: "returned", label: "Mark Returned", primary: true }];
+    }
   }
-  return []; // returned, issued, and cancelled are final
+  
+  return [];
 }
 
-// Page 8: every borrowing, with the buttons that move it through its statuses.
 export default function Borrowings() {
-  const [status, setStatus] = useState<BorrowingStatus | "">("");
-  const borrowings = useFetch<Borrowing[]>(status ? `/borrowings?status=${status}` : "/borrowings");
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  
+  const [status, setStatus] = useState<string>("");
+  
+  // Build query string so borrowers only see their own bookings
+  const query = new URLSearchParams();
+  if (status) query.set("status", status);
+  if (!isAdmin && user?.id) query.set("borrower", user.id);
+const url = query.toString() ? `/borrowings?${query.toString()}` : "/borrowings";
+  const borrowings = useFetch<Borrowing[]>(url);
   const { showToast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Borrowing | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  async function changeStatus(borrowing: Borrowing, newStatus: BorrowingStatus) {
+  async function changeStatus(borrowing: Borrowing, newStatus: string) {
     setBusyId(borrowing._id);
     try {
       const response = await api.patch(`/borrowings/${borrowing._id}/status`, { status: newStatus });
@@ -64,7 +80,7 @@ export default function Borrowings() {
       showToast(
         fine
           ? `Returned ${fine.daysOverdue} day(s) late. A fine of ${formatPeso(fine.amount)} was created.`
-          : `Borrowing ${newStatus}`
+          : `Booking moved to ${newStatus.replace(/_/g, ' ')}`
       );
       borrowings.refetch();
     } catch (error) {
@@ -79,7 +95,7 @@ export default function Borrowings() {
     setDeleting(true);
     try {
       await api.delete(`/borrowings/${toDelete._id}`);
-      showToast("Borrowing deleted");
+      showToast("Booking deleted");
       borrowings.refetch();
     } catch (error) {
       showToast(getErrorMessage(error), "error");
@@ -90,14 +106,16 @@ export default function Borrowings() {
   }
 
   const list = borrowings.data ?? [];
-  // Derived value: total units across the borrowings currently shown.
   const totalUnits = list.reduce((sum, borrowing) => sum + borrowing.quantity, 0);
 
   return (
     <>
-      <PageHeader title="Borrowings" subtitle="Approve, release, and receive borrowed items">
-        <Link to="/borrowings/new" className="btn-primary">
-          <Plus className="size-4" /> New booking
+      <PageHeader 
+        title={isAdmin ? "Bookings Management" : "My Bookings"} 
+        subtitle={isAdmin ? "Approve, release, and manage equipment reservations" : "Track the status of your requested equipment"}
+      >
+        <Link to={isAdmin ? "/borrowings/new" : "/equipment"} className="btn-primary">
+          <Plus className="size-4" /> {isAdmin ? "New booking" : "Browse Equipment"}
         </Link>
       </PageHeader>
 
@@ -119,27 +137,31 @@ export default function Borrowings() {
         ))}
       </div>
 
-      {borrowings.loading && <Loading label="Loading borrowings..." />}
+      {borrowings.loading && <Loading label="Loading bookings..." />}
       {borrowings.error && <ErrorMessage message={borrowings.error} onRetry={borrowings.refetch} />}
       {!borrowings.loading && !borrowings.error && list.length === 0 && (
         <EmptyState
-          title={status ? `No ${status} borrowings` : "No borrowings yet"}
-          message="Create a booking to see it here."
+          title={status ? `No ${status.replace(/_/g, ' ')} bookings` : "No bookings found"}
+          message={isAdmin ? "Create a booking to see it here." : "Your requested equipment will appear here."}
         >
-          <Link to="/borrowings/new" className="btn-primary">New booking</Link>
+          <Link to={isAdmin ? "/borrowings/new" : "/equipment"} className="btn-primary">
+            {isAdmin ? "New booking" : "Browse Equipment"}
+          </Link>
         </EmptyState>
       )}
 
       {!borrowings.loading && !borrowings.error && list.length > 0 && (
         <>
           <p className="mb-3 text-sm text-nu-muted">
-            {list.length} borrowing(s), {totalUnits} unit(s) in total
+            {list.length} booking(s), {totalUnits} unit(s) in total
           </p>
           <ul className="grid gap-3">
             {list.map((borrowing) => {
-              const actions = nextActions(borrowing);
-              const isFinal = actions.length === 0;
+              const actions = nextActions(borrowing, isAdmin);
               const busy = busyId === borrowing._id;
+              const isConsumable = borrowing.equipment?.type === "consumable";
+              const showStockAdjustment = isAdmin && borrowing.status === "returned" && isConsumable;
+
               return (
                 <li key={borrowing._id} className="card !p-4 sm:!p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -148,8 +170,8 @@ export default function Borrowings() {
                         {borrowing.quantity} × {borrowing.equipment?.name ?? "Deleted item"}
                       </p>
                       <p className="text-sm text-nu-muted">
-                        {borrowing.borrower?.name ?? "Deleted borrower"}
-                        {borrowing.purpose && ` · ${borrowing.purpose}`}
+                        {isAdmin && <span className="font-semibold text-nu-ink mr-1">{borrowing.borrower?.name ?? "Unknown"}</span>}
+                        {borrowing.purpose && `· ${borrowing.purpose}`}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
@@ -166,7 +188,7 @@ export default function Borrowings() {
                     <div className="flex gap-1.5">
                       <dt className="text-nu-muted">Due</dt>
                       <dd className={`font-medium ${borrowing.daysOverdue > 0 ? "text-red-700" : ""}`}>
-                        {borrowing.dueDate ? formatDate(borrowing.dueDate) : "Not returned (consumable)"}
+                        {borrowing.dueDate ? formatDate(borrowing.dueDate) : "N/A (consumable)"}
                         {borrowing.daysOverdue > 0 && ` (${borrowing.daysOverdue} day(s) late)`}
                       </dd>
                     </div>
@@ -190,12 +212,18 @@ export default function Borrowings() {
                         {busy ? "Working..." : action.label}
                       </button>
                     ))}
-                    {(isFinal || borrowing.status === "pending") && (
+                    
+                    {showStockAdjustment && (
+                      <Link to={`/equipment/${borrowing.equipment?._id}/edit`} className="btn-outline btn-sm text-orange-600 border-orange-200 hover:bg-orange-50">
+                        <Settings2 className="size-3.5 mr-1 inline" /> Adjust Stock
+                      </Link>
+                    )}
+
+                    {isAdmin && (actions.length === 0 || borrowing.status === "in_review") && (
                       <button type="button" className="btn-danger btn-sm" disabled={busy} onClick={() => setToDelete(borrowing)}>
                         Delete
                       </button>
                     )}
-                    {isFinal && <span className="self-center text-xs text-nu-muted">This borrowing is final.</span>}
                   </div>
                 </li>
               );
@@ -206,7 +234,7 @@ export default function Borrowings() {
 
       <ConfirmDialog
         open={toDelete !== null}
-        title="Delete borrowing?"
+        title="Delete booking?"
         message={`The record of ${toDelete?.quantity} × ${toDelete?.equipment?.name ?? "this item"} will be permanently removed.`}
         busy={deleting}
         onConfirm={confirmDelete}

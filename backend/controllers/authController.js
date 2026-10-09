@@ -1,11 +1,12 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Borrower = require("../models/Borrower"); // <-- Added import
 const httpError = require("../utils/httpError");
 const { getJwtSecret } = require("../config/auth");
 
 function userResponse(user) {
-  return { id: user._id, name: user.name, studentNumber: user.studentNumber, email: user.email };
+  return { id: user._id, name: user.name, studentNumber: user.studentNumber, email: user.email, role: user.role,status: user.status || "active" };
 }
 
 function createToken(user) {
@@ -21,7 +22,19 @@ async function register(req, res) {
   if (exists) throw httpError(400, "An account with that email or school ID already exists");
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await User.create({ name, studentNumber, email, passwordHash });
+  
+  // 1. Create the User (Login Credentials)
+  const user = await User.create({ name, studentNumber, email: email.toLowerCase(), passwordHash });
+  
+  // 2. Automatically create the linked Borrower profile (Library Rules & Standing)
+  await Borrower.create({
+    name,
+    studentNumber,
+    email: email.toLowerCase(),
+    type: "student", // Defaults to student. Admins can manually upgrade to faculty if needed.
+    status: "active"
+  });
+
   res.status(201).json({ token: createToken(user), user: userResponse(user) });
 }
 

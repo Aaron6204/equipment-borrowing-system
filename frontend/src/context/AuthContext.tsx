@@ -5,6 +5,7 @@ export interface AuthUser {
   name: string;
   studentNumber: string;
   email: string;
+  role: 'admin' | 'borrower';
 }
 
 interface AuthContextValue {

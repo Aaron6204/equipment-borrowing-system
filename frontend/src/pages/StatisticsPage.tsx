@@ -9,7 +9,8 @@ import EmptyState from "../components/EmptyState";
 import StatCard from "../components/StatCard";
 import StatusBadge from "../components/StatusBadge";
 
-const statusOrder: BorrowingStatus[] = ["pending", "approved", "released", "returned", "issued", "cancelled"];
+// NEW: Updated to match our custom pipeline
+const statusOrder: BorrowingStatus[] = ["in_review", "ready_for_pickup", "active", "returned", "overdue", "cancelled"];
 
 // Page 10: summaries computed by the API from all the stored records.
 export default function StatisticsPage() {
@@ -20,7 +21,7 @@ export default function StatisticsPage() {
   if (!data) return null;
 
   // Derived values: used to size the bars below.
-  const largestStatusCount = Math.max(...statusOrder.map((status) => data.byStatus[status]), 1);
+  const largestStatusCount = Math.max(...statusOrder.map((status) => data.byStatus[status] || 0), 1);
   const largestUnits = Math.max(...data.mostBorrowed.map((item) => item.units), 1);
 
   return (
@@ -54,15 +55,19 @@ export default function StatisticsPage() {
             <p className="mt-4 text-sm text-nu-muted">No borrowings have been recorded yet.</p>
           ) : (
             <ul className="mt-4 grid gap-3">
-              {statusOrder.map((status) => (
-                <li key={status} className="grid grid-cols-[6.5rem_1fr_2rem] items-center gap-3">
-                  <StatusBadge value={status} />
-                  <div className="h-2.5 overflow-hidden rounded-full bg-nu-mist">
-                    <div className="h-full rounded-full bg-nu-royal" style={{ width: `${(data.byStatus[status] / largestStatusCount) * 100}%` }} />
-                  </div>
-                  <span className="text-right text-sm font-bold text-nu-navy">{data.byStatus[status]}</span>
-                </li>
-              ))}
+              {statusOrder.map((status) => {
+                // Ensure we handle undefined if the backend hasn't registered a certain status yet
+                const count = data.byStatus[status] || 0;
+                return (
+                  <li key={status} className="grid grid-cols-[6.5rem_1fr_2rem] items-center gap-3">
+                    <StatusBadge value={status} />
+                    <div className="h-2.5 overflow-hidden rounded-full bg-nu-mist">
+                      <div className="h-full rounded-full bg-nu-royal" style={{ width: `${(count / largestStatusCount) * 100}%` }} />
+                    </div>
+                    <span className="text-right text-sm font-bold text-nu-navy">{count}</span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

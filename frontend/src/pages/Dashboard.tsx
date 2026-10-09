@@ -12,20 +12,23 @@ import EmptyState from "../components/EmptyState";
 import StatCard from "../components/StatCard";
 import StatusBadge from "../components/StatusBadge";
 
-// Page 2: an overview of the equipment room right now.
 export default function Dashboard() {
   const stats = useFetch<Statistics>("/statistics");
-  const pending = useFetch<Borrowing[]>("/borrowings?status=pending");
+  
+  // 1. Fetch items that are currently "in_review" instead of "pending"
+  const inReview = useFetch<Borrowing[]>("/borrowings?status=in_review");
   const lowStock = useFetch<Equipment[]>("/equipment/low-stock");
+  
   const { showToast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function approve(borrowing: Borrowing) {
     setBusyId(borrowing._id);
     try {
-      await api.patch(`/borrowings/${borrowing._id}/status`, { status: "approved" });
-      showToast(`Approved ${borrowing.equipment?.name ?? "request"}`);
-      pending.refetch();
+      // 2. Move the status to "ready_for_pickup"
+      await api.patch(`/borrowings/${borrowing._id}/status`, { status: "ready_for_pickup" });
+      showToast(`Approved booking for ${borrowing.equipment?.name ?? "item"}`);
+      inReview.refetch();
       stats.refetch();
     } catch (error) {
       showToast(getErrorMessage(error), "error");
@@ -53,9 +56,10 @@ export default function Dashboard() {
             icon={<Boxes className="size-5" />}
           />
           <StatCard
-            label="Active borrowings"
+            label="Active bookings"
             value={stats.data.totals.activeBorrowings}
-            hint={`${stats.data.byStatus.pending} waiting for approval`}
+            // Temporarily hide the "pending" breakdown hint until we update the Statistics controller on the backend
+            hint="Total items currently checked out" 
             icon={<ClipboardList className="size-5" />}
             tone="gold"
           />
@@ -67,7 +71,7 @@ export default function Dashboard() {
             tone={stats.data.totals.overdueNow > 0 ? "red" : "green"}
           />
           <StatCard
-            label="Registered borrowers"
+            label="Registered users"
             value={stats.data.totals.borrowers}
             hint={`${stats.data.returns.onTimeRate}% of returns on time`}
             icon={<Users className="size-5" />}
@@ -77,7 +81,7 @@ export default function Dashboard() {
       )}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
-        {/* Requests waiting for approval */}
+        {/* Bookings waiting for approval */}
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-bold text-nu-navy">Waiting for approval</h2>
@@ -85,20 +89,23 @@ export default function Dashboard() {
               View all
             </Link>
           </div>
-          {pending.loading && <Loading />}
-          {pending.error && <ErrorMessage message={pending.error} onRetry={pending.refetch} />}
-          {pending.data && pending.data.length === 0 && (
-            <EmptyState title="No pending requests" message="New booking requests will appear here." />
+          
+          {inReview.loading && <Loading />}
+          {inReview.error && <ErrorMessage message={inReview.error} onRetry={inReview.refetch} />}
+          
+          {inReview.data && inReview.data.length === 0 && (
+            <EmptyState title="No bookings in review" message="New booking requests will appear here." />
           )}
-          {pending.data && pending.data.length > 0 && (
+          
+          {inReview.data && inReview.data.length > 0 && (
             <ul className="card divide-y divide-nu-line !p-0">
-              {pending.data.map((borrowing) => (
+              {inReview.data.map((borrowing) => (
                 <li key={borrowing._id} className="flex flex-wrap items-center justify-between gap-3 p-4">
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-nu-navy">
                       {borrowing.quantity} × {borrowing.equipment?.name ?? "Deleted item"}
                     </p>
-                    <p className="truncate text-sm text-nu-muted">{borrowing.borrower?.name ?? "Deleted borrower"}</p>
+                    <p className="truncate text-sm text-nu-muted">{borrowing.borrower?.name ?? "Unknown borrower"}</p>
                   </div>
                   <button
                     type="button"

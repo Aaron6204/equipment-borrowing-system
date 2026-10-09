@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Link, useSearchParams, useOutletContext } from "react-router-dom";
+import { Pencil, Plus, Search, Trash2, ShoppingCart, Ban, Minus} from "lucide-react";
 import api, { getErrorMessage } from "../api/axios";
 import { useFetch } from "../hooks/useFetch";
 import { useDebounce } from "../hooks/useDebounce";
 import { useToast } from "../hooks/useToast";
+import { useAuth } from "../context/AuthContext";
 import type { Category, Equipment } from "../types";
+import type { CartItem } from "../components/Layout";
 import PageHeader from "../components/PageHeader";
 import Loading from "../components/Loading";
 import ErrorMessage from "../components/ErrorMessage";
@@ -14,8 +16,17 @@ import StatusBadge from "../components/StatusBadge";
 import ConfirmDialog from "../components/ConfirmDialog";
 import CategoryManager from "../components/CategoryManager";
 
-// Page 3: the inventory, with search, filters, and sorting done by the API.
+type OutletContextType = {
+  cart: CartItem[];
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
+};
+
 export default function EquipmentList() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const isSuspended = (user as any)?.status === "suspended";
+  const { cart, setCart } = useOutletContext<OutletContextType>();
+
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
@@ -24,7 +35,6 @@ export default function EquipmentList() {
   const [sort, setSort] = useState("name");
   const debouncedSearch = useDebounce(search);
 
-  // The filters are sent to the API as a query string.
   const query = new URLSearchParams({ sort });
   if (debouncedSearch) query.set("search", debouncedSearch);
   if (category) query.set("category", category);
@@ -37,11 +47,12 @@ export default function EquipmentList() {
   const [toDelete, setToDelete] = useState<Equipment | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Derived values: computed from the loaded list during render, not stored in state.
   const items = equipment.data ?? [];
   const totalAvailable = items.reduce((sum, item) => sum + item.available, 0);
   const lowStockCount = items.filter((item) => item.lowStock).length;
   const hasFilters = Boolean(search || category || type || condition);
+
+  const totalCartUnits = cart.reduce((sum, item) => sum + item.cartQuantity, 0);
 
   async function confirmDelete() {
     if (!toDelete) return;
@@ -65,13 +76,44 @@ export default function EquipmentList() {
     setCondition("");
   }
 
+  function addToCart(item: Equipment) {
+    if (totalCartUnits >= 2) {
+      showToast("You can only borrow up to 2 items total.", "error");
+      return;
+    }
+    setCart((prev) => [...prev, { ...item, cartQuantity: 1 }]);
+  }
+
+  function updateQuantity(itemId: string, delta: number) {
+    setCart((prev) => 
+      prev.map(item => {
+        if (item._id === itemId) {
+          return { ...item, cartQuantity: item.cartQuantity + delta };
+        }
+        return item;
+      }).filter(item => item.cartQuantity > 0)
+    );
+  }
+
   return (
     <>
       <PageHeader title="Equipment" subtitle="Everything in the equipment room and how many units are available">
-        <Link to="/equipment/new" className="btn-primary">
-          <Plus className="size-4" /> Add equipment
-        </Link>
+        {isAdmin && (
+          <Link to="/equipment/new" className="btn-primary">
+            <Plus className="size-4" /> Add equipment
+          </Link>
+        )}
       </PageHeader>
+
+      {isSuspended && !isAdmin && (
+        <div className="mb-6 rounded-xl bg-red-50 p-4 border border-red-200 flex items-start gap-3 text-red-800 shadow-sm">
+          <Ban className="size-5 shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-bold">Account Suspended</h3>
+            <p className="text-sm mt-1">Your borrowing privileges have been temporarily revoked. You cannot add items to your bag. Please contact the administrator for assistance.</p>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -129,9 +171,9 @@ export default function EquipmentList() {
           >
             {hasFilters ? (
               <button type="button" className="btn-outline" onClick={clearFilters}>Clear filters</button>
-            ) : (
+            ) : isAdmin ? (
               <Link to="/equipment/new" className="btn-primary">Add equipment</Link>
-            )}
+            ) : null}
           </EmptyState>
         )}
 
@@ -143,15 +185,26 @@ export default function EquipmentList() {
             </p>
             <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {items.map((item) => {
-                // Share of units that can still be borrowed, used for the bar.
                 const percent = item.totalQuantity > 0 ? Math.round((item.available / item.totalQuantity) * 100) : 0;
+                const canBorrow = item.available > 0 && item.condition !== "retired";
+                
+                const cartItem = cart.find((i) => i._id === item._id);
+                const inCart = !!cartItem;
+
                 return (
                   <li key={item._id} className="card flex min-w-0 flex-col">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <Link to={`/equipment/${item._id}`} className="block truncate text-base font-bold text-nu-navy hover:underline">
-                          {item.name}
-                        </Link>
+                        {/* Students just see text, Admins see a clickable link */}
+                        {isAdmin ? (
+                          <Link to={`/equipment/${item._id}`} className="block truncate text-base font-bold text-nu-navy hover:underline">
+                            {item.name}
+                          </Link>
+                        ) : (
+                          <span className="block truncate text-base font-bold text-nu-navy">
+                            {item.name}
+                          </span>
+                        )}
                         <p className="truncate text-sm text-nu-muted">{item.category?.name ?? "No category"}</p>
                       </div>
                       <StatusBadge value={item.type} />
@@ -175,13 +228,47 @@ export default function EquipmentList() {
                     </div>
 
                     <div className="mt-4 flex gap-2 border-t border-nu-line pt-4">
-                      <Link to={`/equipment/${item._id}`} className="btn-outline btn-sm flex-1">View</Link>
-                      <Link to={`/equipment/${item._id}/edit`} className="btn-outline btn-sm" aria-label={`Edit ${item.name}`}>
-                        <Pencil className="size-3.5" />
-                      </Link>
-                      <button type="button" className="btn-danger btn-sm" onClick={() => setToDelete(item)} aria-label={`Delete ${item.name}`}>
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      {isAdmin ? (
+                        <>
+                          <Link to={`/equipment/${item._id}`} className="btn-outline btn-sm flex-1">View Details</Link>
+                          <Link to={`/equipment/${item._id}/edit`} className="btn-outline btn-sm" aria-label={`Edit ${item.name}`}>
+                            <Pencil className="size-3.5" />
+                          </Link>
+                          <button type="button" className="btn-danger btn-sm" onClick={() => setToDelete(item)} aria-label={`Delete ${item.name}`}>
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        inCart ? (
+                          <div className="flex flex-1 items-center justify-between rounded-lg bg-gray-50 border border-gray-200 p-1">
+                            <button 
+                              type="button" 
+                              onClick={() => updateQuantity(item._id, -1)} 
+                              className="btn-outline btn-sm px-3 bg-white"
+                            >
+                              <Minus className="size-3.5" />
+                            </button>
+                            <span className="font-bold text-nu-navy">{cartItem.cartQuantity}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => updateQuantity(item._id, 1)} 
+                              disabled={totalCartUnits >= 2 || cartItem.cartQuantity >= item.available} 
+                              className="btn-outline btn-sm px-3 bg-white disabled:opacity-50"
+                            >
+                              <Plus className="size-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={!canBorrow || totalCartUnits >= 2}
+                            onClick={() => addToCart(item)}
+                            className="btn-primary btn-sm flex-1 disabled:opacity-50"
+                          >
+                            <ShoppingCart className="size-4 mr-1 inline" /> Add to Cart
+                          </button>
+                        )
+                      )}
                     </div>
                   </li>
                 );
@@ -191,7 +278,7 @@ export default function EquipmentList() {
         )}
       </div>
 
-      {categories.data && <CategoryManager categories={categories.data} onChanged={() => { categories.refetch(); equipment.refetch(); }} />}
+      {isAdmin && categories.data && <CategoryManager categories={categories.data} onChanged={() => { categories.refetch(); equipment.refetch(); }} />}
 
       <ConfirmDialog
         open={toDelete !== null}
