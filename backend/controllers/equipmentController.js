@@ -15,7 +15,9 @@ async function withAvailability(equipmentList) {
       .filter((b) => String(b.equipment) === String(item._id))
       .reduce((sum, b) => sum + b.quantity, 0);
 
-    const available = item.condition === "good" ? Math.max(item.totalQuantity - held, 0) : 0;
+    // Consumables are always brand new; only non-consumables can be damaged or retired.
+    const usable = item.type === "consumable" || item.condition === "good";
+    const available = usable ? Math.max(item.totalQuantity - held, 0) : 0;
     const lowStock = item.type === "consumable" && item.totalQuantity <= item.reorderLevel;
 
     return { ...item.toObject(), held, available, lowStock };
@@ -107,9 +109,24 @@ async function checkAvailability(req, res) {
   });
 }
 
+// Rules for condition and damage notes, applied when an item is created or edited:
+// - Consumables are always brand new, so their condition is always "good" with no notes.
+// - A damaged non-consumable must say what is damaged.
+// - Notes are cleared when the item is not damaged.
+function applyConditionRules(body, existing = null) {
+  const type = body.type ?? existing?.type;
+  const condition = body.condition ?? existing?.condition ?? "good";
+  const notes = String(body.damageNotes ?? existing?.damageNotes ?? "").trim();
+
+  if (type === "consumable") return { ...body, condition: "good", damageNotes: "" };
+  if (condition !== "damaged") return { ...body, damageNotes: "" };
+  if (!notes) throw httpError(400, "Describe the damage before marking an item as damaged");
+  return { ...body, damageNotes: notes };
+}
+
 // POST /api/equipment - create an equipment item
 async function createEquipment(req, res) {
-  const equipment = await Equipment.create(req.body);
+  const equipment = await Equipment.create(applyConditionRules(req.body));
   res.status(201).json(equipment);
 }
 
@@ -126,7 +143,7 @@ async function updateEquipment(req, res) {
     }
   }
 
-  const equipment = await Equipment.findByIdAndUpdate(req.params.id, req.body, {
+  const equipment = await Equipment.findByIdAndUpdate(req.params.id, applyConditionRules(req.body, existing), {
     new: true,
     runValidators: true,
   });

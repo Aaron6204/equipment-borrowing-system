@@ -5,6 +5,8 @@ import api, { getErrorMessage } from "../api/axios";
 import { useFetch } from "../hooks/useFetch";
 import { useToast } from "../hooks/useToast";
 import type { Borrowing, Equipment, Statistics } from "../types";
+import { groupBookings } from "../utils/bookings";
+import type { Booking } from "../utils/bookings";
 import PageHeader from "../components/PageHeader";
 import Loading from "../components/Loading";
 import ErrorMessage from "../components/ErrorMessage";
@@ -15,19 +17,20 @@ import StatusBadge from "../components/StatusBadge";
 export default function Dashboard() {
   const stats = useFetch<Statistics>("/statistics");
   
-  // 1. Fetch items that are currently "in_review" instead of "pending"
+  // Items waiting for approval, grouped into bookings (items checked out together).
   const inReview = useFetch<Borrowing[]>("/borrowings?status=in_review");
+  const waiting = groupBookings(inReview.data ?? []);
   const lowStock = useFetch<Equipment[]>("/equipment/low-stock");
   
   const { showToast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function approve(borrowing: Borrowing) {
-    setBusyId(borrowing._id);
+  // Approves every item in the booking at once.
+  async function approve(booking: Booking) {
+    setBusyId(booking.id);
     try {
-      // 2. Move the status to "ready_for_pickup"
-      await api.patch(`/borrowings/${borrowing._id}/status`, { status: "ready_for_pickup" });
-      showToast(`Approved booking for ${borrowing.equipment?.name ?? "item"}`);
+      await api.patch(`/borrowings/bookings/${booking.id}/status`, { action: "approve" });
+      showToast(`Approved booking ${booking.reference}`);
       inReview.refetch();
       stats.refetch();
     } catch (error) {
@@ -93,27 +96,30 @@ export default function Dashboard() {
           {inReview.loading && <Loading />}
           {inReview.error && <ErrorMessage message={inReview.error} onRetry={inReview.refetch} />}
           
-          {inReview.data && inReview.data.length === 0 && (
+          {inReview.data && waiting.length === 0 && (
             <EmptyState title="No bookings in review" message="New booking requests will appear here." />
           )}
           
-          {inReview.data && inReview.data.length > 0 && (
+          {inReview.data && waiting.length > 0 && (
             <ul className="card divide-y divide-nu-line !p-0">
-              {inReview.data.map((borrowing) => (
-                <li key={borrowing._id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+              {waiting.map((booking) => (
+                <li key={booking.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-nu-navy">
-                      {borrowing.quantity} × {borrowing.equipment?.name ?? "Deleted item"}
+                      {booking.borrower?.name ?? "Unknown borrower"}{" "}
+                      <span className="font-normal text-nu-muted">· {booking.reference}</span>
                     </p>
-                    <p className="truncate text-sm text-nu-muted">{borrowing.borrower?.name ?? "Unknown borrower"}</p>
+                    <p className="truncate text-sm text-nu-muted">
+                      {booking.items.map((item) => `${item.quantity} × ${item.equipment?.name ?? "Deleted item"}`).join(", ")}
+                    </p>
                   </div>
                   <button
                     type="button"
                     className="btn-primary btn-sm"
-                    disabled={busyId === borrowing._id}
-                    onClick={() => approve(borrowing)}
+                    disabled={busyId === booking.id}
+                    onClick={() => approve(booking)}
                   >
-                    {busyId === borrowing._id ? "Approving..." : "Approve"}
+                    {busyId === booking.id ? "Approving..." : "Approve"}
                   </button>
                 </li>
               ))}
@@ -158,4 +164,4 @@ export default function Dashboard() {
       </div>
     </>
   );
-}
+}

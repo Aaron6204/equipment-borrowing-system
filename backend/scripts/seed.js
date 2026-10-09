@@ -48,10 +48,10 @@ async function seed() {
     { name: "Basketball", category: sports._id, type: N, totalQuantity: 8, replacementCost: 900 },
     { name: "Volleyball", category: sports._id, type: N, totalQuantity: 6, replacementCost: 750 },
     { name: "Badminton Racket", category: sports._id, type: N, totalQuantity: 10, replacementCost: 400 },
-    { name: "Bond Paper (sheet)", category: supplies._id, type: C, totalQuantity: 500, reorderLevel: 100 },
-    { name: "Glue Stick", category: supplies._id, type: C, totalQuantity: 6, reorderLevel: 10 },
-    { name: "Masking Tape", category: supplies._id, type: C, totalQuantity: 15, reorderLevel: 5 },
-    { name: "Whiteboard Marker", category: supplies._id, type: C, totalQuantity: 0, reorderLevel: 8 },
+    { name: "Bond Paper (sheet)", category: supplies._id, type: C, totalQuantity: 500, reorderLevel: 100, costPerUnit: 1 },
+    { name: "Glue Stick", category: supplies._id, type: C, totalQuantity: 6, reorderLevel: 10, costPerUnit: 25 },
+    { name: "Masking Tape", category: supplies._id, type: C, totalQuantity: 15, reorderLevel: 5, costPerUnit: 35 },
+    { name: "Whiteboard Marker", category: supplies._id, type: C, totalQuantity: 0, reorderLevel: 8, costPerUnit: 45 },
   ]);
   const item = (name) => items.find((i) => i.name === name);
 
@@ -75,7 +75,9 @@ async function seed() {
     const borrowDate = daysAgo(borrowed);
     const multiplier = borrower.type === "faculty" ? 2 : 1;
     const dueDate = equipment.type === N ? computeDueDate(borrowDate, category.maxLoanDays * multiplier) : null;
-    const wasReleased = ["released", "returned", "issued"].includes(status);
+    const wasReleased = ["active", "returned", "purchased"].includes(status);
+    // Consumables are bought: copy the price, and record when the sale was paid for.
+    const unitPrice = equipment.type === C ? equipment.costPerUnit : 0;
     return {
       equipment: equipment._id,
       borrower: borrower._id,
@@ -84,6 +86,9 @@ async function seed() {
       borrowDate,
       dueDate,
       releasedAt: wasReleased ? borrowDate : null,
+      unitPrice,
+      totalPrice: unitPrice * quantity,
+      purchasedAt: status === "purchased" ? borrowDate : null,
       purpose: "",
       ...extra,
     };
@@ -91,22 +96,22 @@ async function seed() {
 
   const borrowings = await Borrowing.insertMany([
     // Waiting for approval
-    borrowing("Scientific Calculator", "Maria Santos", 2, "pending", 0, { purpose: "Statistics quiz" }),
-    borrowing("Bond Paper (sheet)", "Angela Reyes", 50, "pending", 0, { purpose: "Org event programs" }),
-    borrowing("LCD Projector", "Prof. Liza Aquino", 1, "pending", 0, { purpose: "Capstone defense" }),
-    // Approved, waiting to be released
-    borrowing("Badminton Racket", "Carlo Mendoza", 4, "approved", 0, { purpose: "PE class" }),
-    borrowing("Masking Tape", "Bea Villanueva", 2, "approved", 0, { purpose: "Booth setup" }),
+    borrowing("Scientific Calculator", "Maria Santos", 2, "in_review", 0, { purpose: "Statistics quiz" }),
+    borrowing("Bond Paper (sheet)", "Angela Reyes", 50, "in_review", 0, { purpose: "Org event programs" }),
+    borrowing("LCD Projector", "Prof. Liza Aquino", 1, "in_review", 0, { purpose: "Capstone defense" }),
+    // Approved, waiting for pickup
+    borrowing("Badminton Racket", "Carlo Mendoza", 4, "ready_for_pickup", 0, { purpose: "PE class" }),
+    borrowing("Masking Tape", "Bea Villanueva", 2, "ready_for_pickup", 0, { purpose: "Booth setup" }),
     // Currently out and on time
-    borrowing("Ruler (30 cm)", "Maria Santos", 3, "released", 1, { purpose: "Drafting plates" }),
-    borrowing("LCD Projector", "Prof. Ramon Garcia", 1, "released", 1, { purpose: "Lecture" }),
-    borrowing("HDMI Cable", "Prof. Ramon Garcia", 1, "released", 1, { purpose: "Lecture" }),
+    borrowing("Ruler (30 cm)", "Maria Santos", 3, "active", 1, { purpose: "Drafting plates" }),
+    borrowing("LCD Projector", "Prof. Ramon Garcia", 1, "active", 1, { purpose: "Lecture" }),
+    borrowing("HDMI Cable", "Prof. Ramon Garcia", 1, "active", 1, { purpose: "Lecture" }),
     // Currently out and OVERDUE
-    borrowing("Basketball", "Juan Dela Cruz", 2, "released", 4, { purpose: "Intramurals practice" }),
-    borrowing("Scientific Calculator", "Carlo Mendoza", 1, "released", 5, { purpose: "Physics exam" }),
-    // Consumables already issued (final)
-    borrowing("Glue Stick", "Angela Reyes", 4, "issued", 2, { purpose: "Poster making" }),
-    borrowing("Bond Paper (sheet)", "Bea Villanueva", 100, "issued", 6, { purpose: "Reviewer printing" }),
+    borrowing("Basketball", "Juan Dela Cruz", 2, "active", 4, { purpose: "Intramurals practice" }),
+    borrowing("Scientific Calculator", "Carlo Mendoza", 1, "active", 5, { purpose: "Physics exam" }),
+    // Consumables already bought with cash (final)
+    borrowing("Glue Stick", "Angela Reyes", 4, "purchased", 2, { purpose: "Poster making" }),
+    borrowing("Bond Paper (sheet)", "Bea Villanueva", 100, "purchased", 6, { purpose: "Reviewer printing" }),
     // Returned on time
     borrowing("Volleyball", "Bea Villanueva", 2, "returned", 8, { returnDate: daysAgo(7), purpose: "PE class" }),
     borrowing("Protractor", "Angela Reyes", 5, "returned", 10, { returnDate: daysAgo(8), purpose: "Math activity" }),
