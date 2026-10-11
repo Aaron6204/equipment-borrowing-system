@@ -1,8 +1,8 @@
 # School Equipment Borrowing System
-Asencio, Laurence
-Balatico, Aaron Justin
-Chuidian, Raphael
-Guevarra, Rancy
+- Asencio, Laurence 
+- Balatico, Aaron Justin 
+- Chuidian, Raphael 
+- Guevarra, Rancy 
 
 Final project for CTADWEBL (Advanced Web Programming), National University Clark, A.Y. 2026-2027.
 
