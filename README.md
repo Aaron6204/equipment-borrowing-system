@@ -2,10 +2,6 @@
 
 SEBS replaces the paper logbook of a school equipment room. Students book equipment online, staff approve the bookings and hand the items over, and the system keeps track of what is available, what is due, who is late, and what has been sold.
 
-Final project for **CTADWEBL (Advanced Web Programming)**, National University Clark, A.Y. 2026-2027.
-
-> This is a student project. It is not an official National University website.
-
 ## Group members
 
 - Asencio, Laurence
